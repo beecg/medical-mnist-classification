@@ -1,51 +1,68 @@
-# Medical MNIST — Image Classification, and Why 0.99 Accuracy Means Nothing Here
+# Medical MNIST — Image Classification, and Why 99% Accuracy Means Nothing Here
 
-Classification of 58,954 medical images (64×64) across six classes, 
-`AbdomenCT`, `BreastMRI`, `CXR`, `ChestCT`, `Hand` and `HeadCT` by using pytorch.
+Classification of 58,954 medical images (64x64) across 6 imaging modalities:
+`AbdomenCT`, `BreastMRI`, `CXR`, `ChestCT`, `Hand`, `HeadCT`.
 
-**This project is not about the score.** A small CNN reaches 0.9997 on this dataset in a
-single epoch. So, the interesting question will be about
+**The point of this notebook is not the score.** A small CNN reaches ~99.8% on this
+dataset, and that number is close to meaningless on its own. The interesting work is
+figuring out *why* it is so high, and whether it can be trusted. So this notebook is
+organised as an investigation:
 
-is what that number actually measures, so the
-notebook is structured as an investigation rather than a training script: fit a trivial
-baseline first, evaluate properly on a held-out test set, and audit the dataset for the
-leakage that volumetric medical imaging makes likely.
+1. Look at the data before modelling anything.
+2. Fit a **linear baseline** first, so the CNN has something to beat.
+3. Train the CNN and compare.
+4. Evaluate properly — held-out test set, confusion matrix, and a look at every error.
+5. **Audit the dataset for leakage**, because CT and MRI images come from volumes,
+   and neighbouring slices of the same patient are nearly identical.
 
-## Results
+### Summary of results
 
-| Model | Input | Test accuracy | Errors (of 8,844) |
+| Model | Input | Test accuracy | Errors (out of 8,844) |
 |---|---|---|---|
-| Logistic regression | 16×16 raw pixels (256 features) | **99.38%** | 55 |
-| Small CNN (2 conv blocks, 1.05M params) | 64×64 RGB | **99.97%** | 3 |
+| Logistic regression | 16x16 raw pixels (256 features) | 99.38% | 55 |
+| Small CNN (2 conv blocks) | 64x64 RGB | 99.97% | 3 |
 
-A linear model on 256 downsampled pixels lands within six tenths of a point of the CNN.
-Stated the other way, the CNN removes 94% of the errors the baseline still makes. Both
-framings are true, and quoting only one of them is how benchmark numbers get oversold.
+A linear model on 256 downsampled pixels is within six tenths of a point of the CNN.
+That is the real finding: **the six modalities are visually disjoint, so the task is
+close to trivial**, and a high accuracy here is not evidence that the model is good.
+(The CNN is not useless — it removes 94% of the errors the baseline still makes — but
+that is a very different claim from "99.97%".)
 
-## Three findings
+### Results
 
-**1. The benchmark is saturated.** Three independent lines of evidence agree: the six
-modalities are visually disjoint on inspection, a linear classifier on downsampled pixels
-already solves 99.4% of it, and the CNN converges in one epoch. With three test errors
-remaining, the test set can no longer discriminate between two reasonable models.
+**Near-duplicates are real and concentrated**. Almost a third of the test images have a training image at cosine similarity above 0.95.
+We also see that the effect is very class-dependent. `AbdomenCT` and `BreastMRI` have their median above 0.95. 
+The others classes have less than that. This could be explained because abdominal CT and breast MRI series produce
+many similar consecutive slices. And chest radiograph is one image per patient. 
 
-**2. Near-duplicate leakage is real but does not explain the accuracy.** CT and MRI scans
-are volumes, so consecutive slices of one patient are near-identical images. Measuring
-cosine similarity between test and training images shows ~32% of test images have a
-training near-duplicate above 0.95 — concentrated in `AbdomenCT` (72%) and `BreastMRI`
-(92%), and nearly absent in `CXR` and `ChestCT`, exactly as the volumetric explanation
-predicts. But splitting the test set by contamination shows accuracy of 100% on the
-leaked half against 99.96% on the clean half. The leakage is worth ~0.04 points. The task
-is simply easy.
+**But the leakage does not explain the accuracy.** Because, we have a very high accuracy for each  classes. Even the ones with less cosin similarity.
+Futhermore, when we remove the "contaminate" pictures we keep an accuracy above 99.95%.
 
-**3. The errors follow acquisition physics, not anatomy.** The prediction that the three
-CT classes would be the main confusion was wrong — they are classified perfectly. The
-baseline's errors concentrate on `Hand`→`HeadCT` (20) and `CXR`→`Hand` (11): plain
-radiographs, which are projections through the body rather than reconstructed
-cross-sections, and which are genuinely closer in pixel space.
+This is worth being explicit about, because the audit was launched on a hypothesis that
+turned out to be **wrong in its consequence**. 
 
-Two hypotheses in this notebook were refuted by measurement. Both are kept, with the
-reasoning that produced them, because that is where most of the value is.
+Our first guess was that the accuracy was false because of leakage. We have sown that the leakage has an impact, but it is not significant.
+The explantion is just that the task is not very difficult.
+
+But we need to keep in mind that this **method has limitations**. 
+Pixel correlation is a proxy for "same patient", not a perfect 
+measurement of it.  Two different patients imaged at the same anatomical level can
+have a high cosine similarity, and two distant slices from the same patient can have a little one.
+
+## 10. Conclusions
+
+**On the dataset.** This was not a difficult dataset. A simple logistic regression on 256
+raw pixels has an accuracy of 99.38%. A small CNN reaches 99.97% ! (this means 3 errors on 8,844 images).
+When we inspected the dataset we already found that it was not difficult.
+We already see it during the visual inspectation of the pictures, the logistic regression and the very fast 
+convergence (after one epoch). We can conclude that the errors are mostly noise. 
+
+**On the model.** The CNN only adds ~0.6%. It is not really important. Something quite fun
+is that it remove 94% of the errors (55 to 3).
+
+**On methodology.** We try to go futher than the simple accuracy score. With a leakage analysis 
+for example. And that two of our predictions were false. The section
+2's confusion prediction and the leakage hypothesis were both refuted by measurement.
 
 ## Dataset
 
@@ -65,18 +82,6 @@ archive/
 ├── Hand/
 └── HeadCT/
 ```
-
-## Running it
-
-```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-jupyter notebook projet.ipynb
-```
-
-Then run all cells. The notebook detects CUDA or Apple MPS automatically and falls back
-to CPU. End-to-end runtime is about 5 minutes on an M-series Mac; the training loop is
-roughly 20 seconds per epoch and the leakage audit about 1 minute.
 
 ## Notebook structure
 
@@ -110,13 +115,3 @@ patients imaged at the same anatomical level can correlate above 0.98, and two d
 slices from one patient can fall below 0.95. The audit therefore bounds the effect of
 *near-duplicates*, not of true patient-level leakage, which cannot be settled without
 patient identifiers this dataset does not provide.
-
-## Next steps
-
-- **Data-efficiency curve** — retrain with 10/50/100/500/1000 images per class. On a
-  saturated task, how much data the problem *needs* is more informative than the score.
-- **Robustness to corruption** — Gaussian noise, blur and contrast shift applied to the
-  test set only. Scanner and protocol variability between hospitals is the real
-  distribution shift in medical imaging.
-- **Grad-CAM** — verify the model attends to anatomy rather than a border artefact. On a
-  task this easy, that is a live possibility.
